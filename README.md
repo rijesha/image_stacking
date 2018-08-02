@@ -17,20 +17,16 @@ In order to allign the images the perspective transforms between the first image
 ## Requirements
 - Python 2 or 3
 - OpenCV 3.0
+- tifffile
 
-## Example Usage:
-### ORB method (faster):
-
-```
-  python auto_stack.py images/ result.jpg --method ORB
-```
-![alt text](https://github.com/maitek/image_stacking/blob/master/result_orb.jpg "ORB result image")
-
+## Generating Calibration Matrices:
 
 ### ECC method (more precise):
 ```
-  python auto_stack.py images/ result.jpg --method ECC
+  python auto_stack.py frames/ result.png 14m_camera_matrix.yaml --method ECC
 ```
-![alt text](https://github.com/maitek/image_stacking/blob/master/result_ECC.jpg "ECC result image")
 
-
+## Batch Aligning Folder
+```
+python make_stacks_from_folder.py 14m_camera_matrix.yaml ../../../fun/aug1/sessions/session_40/ --compression 6
+```

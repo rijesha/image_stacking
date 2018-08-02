@@ -12,32 +12,49 @@ def stackImagesECC(file_list):
 
     first_image = None
     stacked_image = None
+    images = []
+    matrices = {}
 
     for file in file_list:
         image = cv2.imread(file,1).astype(np.float32) / 255
-        print(file)
+        t = file.split("/")[-1][:-4].split("_")
+        t = t[-2] + "_" + t[-1]
+        print(t)
+
         if first_image is None:
             # convert to gray scale floating point image
             first_image = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
             stacked_image = image
         else:
             # Estimate perspective transform
-            s, M = cv2.findTransformECC(cv2.cvtColor(image,cv2.COLOR_BGR2GRAY), first_image, M, cv2.MOTION_HOMOGRAPHY)
+            s, M = cv2.findTransformECC(cv2.cvtColor(image,cv2.COLOR_BGR2GRAY), first_image, M, cv2.MOTION_HOMOGRAPHY, (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 1000000, 0.00000001) )
+            #s, M = cv2.findTransformECC(cv2.cvtColor(image,cv2.COLOR_BGR2GRAY), first_image, M, cv2.MOTION_HOMOGRAPHY)
+            
             w, h, _ = image.shape
             # Align image to first image
             image = cv2.warpPerspective(image, M, (h, w))
+            #image = cv2.warpAffine(image, M, (h, w))
             stacked_image += image
+        count = 0
+        
+        
+        matrices[t] = M.tolist()
+        
+        #np.save("output_" + str(file)[:-3] + ".txt", M)
+        #cv2.imshow(description, image)
+        #cv2.waitKey(10)
+        images.append(image.copy())
 
     stacked_image /= len(file_list)
     stacked_image = (stacked_image*255).astype(np.uint8)
-    return stacked_image
+    return stacked_image, images, matrices
 
 
 # Align and stack images by matching ORB keypoints
 # Faster but less accurate
 def stackImagesKeypointMatching(file_list):
 
-    orb = cv2.ORB_create()
+    orb = cv2.ORB_create(1000000,1.001,32,31,0,4)
 
     # disable OpenCL to because of bug in ORB in OpenCV 3.1
     cv2.ocl.setUseOpenCL(False)
@@ -46,6 +63,8 @@ def stackImagesKeypointMatching(file_list):
     first_image = None
     first_kp = None
     first_des = None
+
+    images = []
     for file in file_list:
         print(file)
         image = cv2.imread(file,1)
@@ -56,7 +75,7 @@ def stackImagesKeypointMatching(file_list):
         kp, des = orb.compute(image, kp)
 
         # create BFMatcher object
-        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING2, crossCheck=True)
 
         if first_image is None:
             # Save keypoints for first image
@@ -75,14 +94,16 @@ def stackImagesKeypointMatching(file_list):
                 [kp[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
 
             # Estimate perspective transformation
-            M, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+            M, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 1.0)
             w, h, _ = imageF.shape
             imageF = cv2.warpPerspective(imageF, M, (h, w))
             stacked_image += imageF
+        images.append(imageF.copy())
 
     stacked_image /= len(file_list)
     stacked_image = (stacked_image*255).astype(np.uint8)
-    return stacked_image
+    
+    return stacked_image, images
 
 # ===== MAIN =====
 # Read all files in directory
@@ -94,6 +115,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('input_dir', help='Input directory of images ()')
     parser.add_argument('output_image', help='Output image name')
+    parser.add_argument('calib_file', help='Output file for calibration')
     parser.add_argument('--method', help='Stacking method ORB (faster) or ECC (more precise)')
     parser.add_argument('--show', help='Show result image',action='store_true')
     args = parser.parse_args()
@@ -118,13 +140,22 @@ if __name__ == '__main__':
         # Stack images using ECC method
         description = "Stacking images using ECC method"
         print(description)
-        stacked_image = stackImagesECC(file_list)
+        stacked_image, images, matrices = stackImagesECC(file_list)
+        for i in matrices:
+            print(i)
+            print(matrices[i])
+
+        fname = "camera_matrices.yaml"
+        import yaml
+        with open(args.calib_file, "w") as f:
+            yaml.dump(matrices, f)
+
 
     elif method == 'ORB':
         #Stack images using ORB keypoint method
         description = "Stacking images using ORB method"
         print(description)
-        stacked_image = stackImagesKeypointMatching(file_list)
+        stacked_image, images = stackImagesKeypointMatching(file_list)
 
     else:
         print("ERROR: method {} not found!".format(method))
@@ -134,6 +165,11 @@ if __name__ == '__main__':
 
     print("Saved {}".format(args.output_image))
     cv2.imwrite(str(args.output_image),stacked_image)
+    
+    j = 0
+    for img in images:
+        cv2.imwrite("output_" + str(file_list[j]),img*255)
+        j = j+1
 
     # Show image
     if args.show:
